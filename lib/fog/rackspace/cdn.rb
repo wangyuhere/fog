@@ -119,7 +119,11 @@ module Fog
           @rackspace_auth_url = options[:rackspace_auth_url]
           @rackspace_cdn_url = options[:rackspace_cdn_url]
           @rackspace_region = options[:rackspace_region] || :dfw
-          authenticate(options)
+          @rackspace_api_key = options[:rackspace_api_key]
+          @rackspace_username = options[:rackspace_username]
+          @rackspace_auth_token = options[:rackspace_auth_token]
+          @rackspace_must_reauthenticate = false
+          authenticate
           @enabled = false
           @persistent = options[:persistent] || false
 
@@ -163,6 +167,14 @@ module Fog
               :host     => endpoint_uri.host,
               :path     => "#{endpoint_uri.path}/#{params[:path]}",
             }))
+          rescue Excon::Errors::Unauthorized => error
+            if error.response.body != 'Bad username or password' # token expiration
+              @rackspace_must_reauthenticate = true
+              authenticate
+              retry
+            else # bad credentials
+              raise error
+            end
           rescue Excon::Errors::NotFound => error
             raise Fog::Storage::Rackspace::NotFound.slurp(error, region)
           rescue Excon::Errors::BadRequest => error
@@ -176,6 +188,19 @@ module Fog
             response.body = Fog::JSON.decode(response.body)
           end
           response
+        end
+
+        def authenticate
+          if @rackspace_must_reauthenticate || @rackspace_auth_token.nil?
+            options = {
+              :rackspace_api_key  => @rackspace_api_key,
+              :rackspace_username => @rackspace_username,
+              :rackspace_auth_url => @rackspace_auth_url
+            }            
+            super(options)
+          else
+            @auth_token = @rackspace_auth_token
+          end
         end
         
         private 
